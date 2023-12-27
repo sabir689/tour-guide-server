@@ -2,9 +2,11 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const port = process.env.port || 5000;
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // middleware
 
@@ -35,32 +37,34 @@ async function run() {
         const packagesCollection = client.db("TouristDb").collection("packages");
         const reviewCollection = client.db("TouristDb").collection("reviews");
         const guidesCollection = client.db("TouristDb").collection("guides");
-        const bookingCollection = client.db("TouristDb").collection("bookings");
-        const wishesCollection = client.db("TouristDb").collection("wishes");
+        const bookingCollection = client.db("TouristDb").collection("booking");
+        const tBookingCollection = client.db("TouristDb").collection("tBooking");
+        const wishCollection = client.db("TouristDb").collection("wish");
         const userCollection = client.db("TouristDb").collection("users");
+        const paymentCollection = client.db("TouristDb").collection("payments");
 
 
-        app.post('/jwt', async (req, res) => {
-            const user = req.body;
-            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
-            res.send({ token });
-        })
+        // app.post('/jwt', async (req, res) => {
+        //     const user = req.body;
+        //     const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+        //     res.send({ token });
+        // })
 
         // middlewares 
         const verifyToken = (req, res, next) => {
-            console.log('inside verify token', req.headers.authorization);
+            // console.log('inside verify token', req.headers.authorization);
             if (!req.headers.authorization) {
-                return res.status(401).send({ message: 'unauthorized access' });
+              return res.status(401).send({ message: 'unauthorized access' });
             }
             const token = req.headers.authorization.split(' ')[1];
             jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-                if (err) {
-                    return res.status(401).send({ message: 'unauthorized access' })
-                }
-                req.decoded = decoded;
-                next();
+              if (err) {
+                return res.status(401).send({ message: 'unauthorized access' })
+              }
+              req.decoded = decoded;
+              next();
             })
-        }
+          }
 
         // use verify admin after verifyToken
         const verifyAdmin = async (req, res, next) => {
@@ -136,18 +140,12 @@ async function run() {
             res.send(result);
         })
 
-        app.delete('/users/:id',  async (req, res) => {
+        app.delete('/users/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) }
             const result = await userCollection.deleteOne(query);
             res.send(result);
         })
-
-
-
-
-
-
 
         app.get('/packages', async (req, res) => {
             const result = await packagesCollection.find().toArray();
@@ -166,33 +164,136 @@ async function run() {
         })
 
         app.get('/guides', async (req, res) => {
-            const result = await guidesCollection.find().toArray();
-            res.send(result);
-        })
-        app.get('/bookings', async (req, res) => {
-            const cursor = bookingCollection.find();
+            const cursor = guidesCollection.find();
             const result = await cursor.toArray();
+            res.send(result)
+        })
+        app.get('/guides/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await guidesCollection.findOne(query);
+            res.send(result)
+        })
+        app.post('/guides', async (req, res) => {
+            const newGuides = req.body;
+            console.log(newGuides);
+            const result = await guidesCollection.insertOne(newGuides);
             res.send(result);
         })
 
-        app.get('/wishes', async (req, res) => {
-            const cursor = wishesCollection.find();
-            const result = await cursor.toArray();
+        app.get('/booking', async (req, res) => {
+            console.log(req.query.email);
+            let query = {};
+            if (req.query?.email) {
+                query = { email: req.query.email }
+            }
+            const result = await bookingCollection.find(query).toArray();
             res.send(result);
         })
-
-
-        app.post('/bookings', async (req, res) => {
+        app.post('/booking', async (req, res) => {
             const formData = req.body;
             console.log(formData);
             const result = await bookingCollection.insertOne(formData);
             res.send(result);
         });
-        app.post('/wishes', async (req, res) => {
+        // ?for tourGuide
+
+        app.get('/tBooking', async (req, res) => {
+            // Assuming you have a MongoDB client instance and a database connection
+        
+            // Get the value of the tourGuide from the query parameters
+            const tourGuideParam = req.query.tourGuide;
+        
+            // Define a filter based on the tourGuide parameter
+            const filter = tourGuideParam ? { tourGuide: tourGuideParam } : {};
+        
+            // Use the filter parameter in the find method
+            const result = await tBookingCollection.find(filter).toArray();
+        
+            res.send(result);
+        });
+        
+        app.post('/tBooking', async (req, res) => {
+            const formData = req.body;
+            console.log(formData);
+            const result = await tBookingCollection.insertOne(formData);
+            res.send(result);
+        });
+
+        app.delete('/booking/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await bookingCollection.deleteOne(query);
+            res.send(result);
+        })
+
+        app.get('/wish', async (req, res) => {
+            const cursor = wishCollection.find();
+            const result = await cursor.toArray();
+            res.send(result);
+        })
+        app.delete('/wish/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await wishCollection.deleteOne(query);
+            res.send(result);
+        })
+        app.post('/wish', async (req, res) => {
             const { tourType, tripTitle } = req.body;
             console.log('Tour Type:', tourType);
             console.log('Trip Title:', tripTitle);
-            const result = await wishesCollection.insertOne({ wishlist: { tourType, tripTitle } }); res.send(result);
+            const result = await wishCollection.insertOne({ wishlist: { tourType, tripTitle } }); res.send(result);
+        })
+
+
+        // payment intent
+        app.post('/create-payment-intent', async (req, res) => {
+            const { price } = req.body;
+            const amount = parseInt(price * 100);
+            console.log(amount, 'amount inside the intent')
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card']
+            });
+
+            res.send({
+                clientSecret: paymentIntent.client_secret
+            })
+        });
+
+
+        // app.get('/payments/:email',  async (req, res) => {
+        //     const query = { email: req.params.email }
+        //     if (req.params.email !== req.decoded.email) {
+        //       return res.status(403).send({ message: 'forbidden access' });
+        //     }
+        //     const result = await paymentCollection.find(query).toArray();
+        //     res.send(result);
+        //   })
+
+        app.get('/payments', async (req, res) => {
+            const result = await paymentCollection.find().toArray();
+            res.send(result);
+        })
+
+
+        app.post('/payments', async (req, res) => {
+            const payment = req.body;
+            const paymentResult = await paymentCollection.insertOne(payment);
+
+            //  carefully delete each item from the cart
+            console.log('payment info', payment);
+            const query = {
+                _id: {
+                    $in: payment.bookingsIds.map(id => new ObjectId(id))
+                }
+            };
+
+            const deleteResult = await bookingCollection.deleteMany(query);
+
+            res.send({ paymentResult ,deleteResult});
         })
 
 
@@ -222,9 +323,9 @@ run().catch(console.dir);
 
 
 app.get('/', (req, res) => {
-    res.send('boss is sitting')
+    res.send('server is starting')
 })
 
 app.listen(port, () => {
-    console.log(`Bistro boss is sitting on port ${port}`);
+    console.log(`server is ok on here ${port}`);
 })
